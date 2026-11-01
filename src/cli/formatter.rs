@@ -24,7 +24,11 @@ impl TaskFormatter {
 
     pub fn format_task_created(&self, task: &Task) {
         match self.format {
-            OutputFormat::Text => println!("Task added successfully with ID: {}", task.get_id()),
+            OutputFormat::Text => println!(
+                "Task added successfully with ID: {} {}",
+                task.get_id(),
+                task.priority.badge()
+            ),
             OutputFormat::Json => {
                 if let Ok(json) = serde_json::to_string_pretty(task) {
                     println!("{}", json);
@@ -43,8 +47,9 @@ impl TaskFormatter {
                     for task in tasks {
                         let status = if task.is_completed() { "✓" } else { "○" };
                         println!(
-                            "{} {} - {}{}",
+                            "{} {} {} - {}{}",
                             status,
+                            task.priority.badge(),
                             task.get_id(),
                             task.get_title(),
                             task.get_description()
@@ -77,8 +82,10 @@ impl TaskFormatter {
                 println!("ID: {}", task.get_id());
                 println!("Title: {}", task.get_title());
                 println!("Description: {}", task.get_description().unwrap_or("None"));
+                println!("Priority: {}", task.priority);
                 println!("Status: {}", status);
                 println!("Created at: {}", task.created_at);
+                println!("Updated at: {}", task.updated_at);
             }
             OutputFormat::Json => {
                 if let Ok(json) = serde_json::to_string_pretty(task) {

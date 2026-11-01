@@ -15,7 +15,7 @@ fn test_storage_new_and_empty() {
 #[test]
 fn test_add_and_get_task() {
     let mut storage = TaskStorage::new();
-    let task = Task::new("Test task".to_string(), None);
+    let task = Task::new("Test task".to_string(), None).unwrap();
     let id = *task.get_id();
 
     storage.add_task(task);
@@ -30,7 +30,7 @@ fn test_add_and_get_task() {
 #[test]
 fn test_get_task_mut() {
     let mut storage = TaskStorage::new();
-    let task = Task::new("Original title".to_string(), None);
+    let task = Task::new("Original title".to_string(), None).unwrap();
     let id = *task.get_id();
 
     storage.add_task(task);
@@ -43,7 +43,7 @@ fn test_get_task_mut() {
 #[test]
 fn test_complete_task() {
     let mut storage = TaskStorage::new();
-    let task = Task::new("Complete me".to_string(), None);
+    let task = Task::new("Complete me".to_string(), None).unwrap();
     let id = *task.get_id();
 
     storage.add_task(task);
@@ -64,7 +64,7 @@ fn test_complete_non_existent_task() {
 #[test]
 fn test_remove_task() {
     let mut storage = TaskStorage::new();
-    let task = Task::new("Remove me".to_string(), None);
+    let task = Task::new("Remove me".to_string(), None).unwrap();
     let id = *task.get_id();
 
     storage.add_task(task);
@@ -86,8 +86,8 @@ fn test_remove_non_existent_task() {
 #[test]
 fn test_clear_all() {
     let mut storage = TaskStorage::new();
-    storage.add_task(Task::new("Task 1".to_string(), None));
-    storage.add_task(Task::new("Task 2".to_string(), None));
+    storage.add_task(Task::new("Task 1".to_string(), None).unwrap());
+    storage.add_task(Task::new("Task 2".to_string(), None).unwrap());
     assert_eq!(storage.len(), 2);
 
     storage.clear_all();
@@ -101,7 +101,7 @@ fn test_save_and_load() {
     let file_path = temp_dir.join("tasks.json");
 
     let mut storage = TaskStorage::new();
-    let task = Task::new("Saved task".to_string(), Some("Desc".to_string()));
+    let task = Task::new("Saved task".to_string(), Some("Desc".to_string())).unwrap();
     let id = *task.get_id();
     storage.add_task(task);
 
@@ -122,11 +122,11 @@ fn test_atomic_save_leaves_no_temp_files() {
     let file_path = temp_dir.join("tasks.json");
 
     let mut storage = TaskStorage::new();
-    storage.add_task(Task::new("Atomic task".to_string(), None));
+    storage.add_task(Task::new("Atomic task".to_string(), None).unwrap());
 
     // Save twice
     storage.save_to_file(&file_path).expect("First save failed");
-    storage.add_task(Task::new("Second task".to_string(), None));
+    storage.add_task(Task::new("Second task".to_string(), None).unwrap());
     storage
         .save_to_file(&file_path)
         .expect("Second save failed");

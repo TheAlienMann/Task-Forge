@@ -2,6 +2,7 @@ pub mod formatter;
 
 use clap::{Parser, Subcommand};
 pub use formatter::{OutputFormat, TaskFormatter};
+use taskforge::Priority;
 
 #[derive(Parser)]
 #[clap(
@@ -56,9 +57,22 @@ pub enum Commands {
         /// Task description
         #[clap(short, long)]
         description: Option<String>,
+        /// Task priority (low, medium, high, urgent)
+        #[clap(short, long, value_enum, default_value_t = Priority::Medium)]
+        priority: Priority,
     },
-    /// List all tasks
-    List,
+    /// List tasks with optional filtering
+    List {
+        /// Show only completed tasks
+        #[clap(long, conflicts_with = "pending")]
+        completed: bool,
+        /// Show only pending tasks
+        #[clap(long, conflicts_with = "completed")]
+        pending: bool,
+        /// Filter by priority (low, medium, high, urgent)
+        #[clap(short, long, value_enum)]
+        priority: Option<Priority>,
+    },
     /// Show a specific task
     Show {
         /// Task ID
@@ -78,6 +92,9 @@ pub enum Commands {
         /// New description
         #[clap(short, long)]
         description: Option<String>,
+        /// New priority
+        #[clap(short, long, value_enum)]
+        priority: Option<Priority>,
     },
     /// Delete a task
     Delete {

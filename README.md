@@ -1,12 +1,15 @@
 # TaskForge
 
-A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, dependency inversion, resilient atomic writes, and rich CLI features.
+A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, dependency inversion, resilient atomic writes, domain invariants, and rich CLI features.
 
 ## Features
 
 - **Decoupled Architecture**: Pure Rust core library (`libtaskforge`) separated from the CLI binary (`taskforge`)
 - **Dependency Inversion**: Domain service (`TaskManager`) depends on an abstract `TaskRepository` trait rather than concrete file storage
 - **Pluggable Storage**: Built-in support for `FileStorage` (JSON persistence) and `InMemoryStorage` (fast, zero-I/O testing)
+- **Priority & Filtering**: Assign priorities (`Low`, `Medium`, `High`, `Urgent`) and filter tasks by status or priority
+- **Domain Invariants**: Guaranteed non-empty titles with automatic whitespace trimming and validation
+- **Timestamps**: Automatic tracking of both `created_at` and `updated_at` timestamps
 - **Multiple Output Formats**: Human-readable text with status icons, structured JSON (`--json`), and quiet ID-only mode (`-q` / `--quiet`)
 - **Resilient Persistence**: Atomic file writes (`tempfile` + `sync_all` + `rename`) guarantee zero data corruption or partial file loss during crashes
 - **Safe Path Resolution**: Automatic `~` and `~/` home directory path expansion avoiding literal directory pollution
@@ -41,11 +44,21 @@ cargo build --release
 ### CLI Commands
 
 ```bash
-# Add a new task
+# Add a new task (default priority: medium)
 taskforge add "My Task Title" --description "Task description here"
+
+# Add a task with specific priority (low, medium, high, urgent)
+taskforge add "Fix critical production bug" -p urgent
+taskforge add "Review documentation" -p low
 
 # List all tasks
 taskforge list
+
+# Filter tasks by status and priority
+taskforge list --pending               # Only pending tasks
+taskforge list --completed             # Only completed tasks
+taskforge list -p urgent               # Only urgent tasks
+taskforge list --pending -p high       # High priority pending tasks
 
 # Show a specific task
 taskforge show <task-id>
@@ -53,8 +66,8 @@ taskforge show <task-id>
 # Complete a task
 taskforge complete <task-id>
 
-# Edit a task
-taskforge edit <task-id> --title "Updated Title" --description "Updated Description"
+# Edit a task's title, description, or priority
+taskforge edit <task-id> --title "Updated Title" --priority high
 
 # Delete a task
 taskforge delete <task-id>
@@ -91,18 +104,22 @@ Because `taskforge` is designed with dependency inversion, you can choose betwee
 
 #### File-backed Task Manager:
 ```rust
-use taskforge::{TaskManager, Task, TaskForgeError};
+use taskforge::{TaskManager, Task, Priority, TaskForgeError};
 
 fn main() -> Result<(), TaskForgeError> {
     // Initialize task manager backed by a JSON file (supports atomic writes and '~' expansion)
     let mut manager = TaskManager::from_file("tasks.json")?;
 
-    // Add a new task
-    let task = manager.add_task("Implement feature".into(), Some("Details here".into()))?;
-    println!("Created task with ID: {}", task.get_id());
+    // Add a new task with urgent priority
+    let task = manager.add_task_with_priority(
+        "Deploy release v1.0".into(),
+        Some("All verification passed".into()),
+        Priority::Urgent,
+    )?;
+    println!("Created task {} with priority {}", task.get_id(), task.priority);
 
-    // List all tasks
-    for t in manager.list_tasks() {
+    // Filter pending tasks
+    for t in manager.filter_tasks(false, true, None) {
         println!("{}: {}", t.get_id(), t.get_title());
     }
 
@@ -115,13 +132,13 @@ fn main() -> Result<(), TaskForgeError> {
 
 #### In-Memory Task Manager (e.g. for testing or ephemeral workloads):
 ```rust
-use taskforge::{TaskManager, InMemoryStorage, TaskForgeError};
+use taskforge::{TaskManager, InMemoryStorage, Priority, TaskForgeError};
 
 fn main() -> Result<(), TaskForgeError> {
     // Zero disk I/O, fast in-memory repository
     let mut manager = TaskManager::new(InMemoryStorage::new());
 
-    let task = manager.add_task("Quick test".into(), None)?;
+    let task = manager.add_task_with_priority("Quick test".into(), None, Priority::High)?;
     assert_eq!(manager.list_tasks().len(), 1);
 
     Ok(())
@@ -136,34 +153,35 @@ The project strictly follows clean separation of concerns and the Dependency Inv
 .
 ├── Cargo.toml
 ├── src/
-│   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, etc.)
+│   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, Priority, etc.)
 │   ├── main.rs              # Thin binary entry point (wiring CLI to library services)
 │   ├── cli/                 # CLI presentation & argument handling
 │   │   ├── mod.rs           # Clap CLI arguments, options, and subcommand definitions
 │   │   └── formatter.rs     # Output formatters (Text, JSON, Quiet)
 │   ├── manager.rs           # Generic TaskManager<R: TaskRepository> business service
-│   ├── error/               # Custom error types (TaskForgeError)
+│   ├── error/               # Custom error types (TaskForgeError: EmptyTitle, InvalidTaskId, etc.)
 │   │   └── mod.rs
-│   ├── models/              # Core domain models (Task)
-│   │   ├── mod.rs
-│   │   └── task.rs
+│   ├── models/              # Core domain models
+│   │   ├── mod.rs           # Module re-exports
+│   │   ├── task.rs          # Task entity with validation, invariants & timestamps
+│   │   └── priority.rs      # Priority enum (Low, Medium, High, Urgent)
 │   └── storage/             # Persistence layer & abstractions
 │       ├── mod.rs           # Module re-exports
 │       ├── repository.rs    # TaskRepository trait definition
 │       ├── file_storage.rs  # FileStorage implementation (atomic writes & path resolution)
 │       └── mem_storage.rs   # InMemoryStorage implementation (ephemeral / testing)
 └── tests/                   # Independent integration test suites
-    ├── task_tests.rs        # Task model unit and serialization tests
+    ├── task_tests.rs        # Task model unit, validation, and serialization tests
     ├── storage_tests.rs     # Storage persistence, atomic writes, and mutation tests
-    └── manager_tests.rs     # TaskManager workflow with both File and InMemory repositories
+    └── manager_tests.rs     # TaskManager workflow with File and InMemory repositories, filtering & priority
 ```
 
 ### Layers:
-1. **Domain Layer (`models`)**: `Task` entity with invariants, completion states, and serde support.
+1. **Domain Layer (`models`)**: `Task` entity with invariants, non-empty title validation, priority badge levels, and timestamps.
 2. **Repository Abstraction (`storage::repository`)**: `TaskRepository` trait defining standard persistence contracts (`get_task`, `get_all_tasks`, `add_task`, `update_task`, `remove_task`, `clear_all`).
 3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`. Includes crash-resilient atomic writes and path resolution.
-4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination without coupling to storage details.
-5. **Presentation Adapter (`cli/`)**: Clap parser handling command-line flags and `TaskFormatter` handling multi-format output (Text, JSON, Quiet).
+4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination, priority handling, and multi-criteria filtering without coupling to storage details.
+5. **Presentation Adapter (`cli/`)**: Clap parser handling command-line flags and `TaskFormatter` handling multi-format output (Text with badges, JSON, Quiet).
 
 ## Development
 
@@ -196,6 +214,7 @@ cargo build
 
 The application handles various error conditions gracefully:
 
+- Empty or whitespace-only task titles (`EmptyTitle`)
 - Invalid task IDs (UUID parsing errors)
 - File I/O errors during storage operations
 - Task not found errors

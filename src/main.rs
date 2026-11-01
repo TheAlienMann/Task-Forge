@@ -18,8 +18,13 @@ fn main() {
     };
 
     match &cli.command {
-        Commands::Add { title, description } => {
-            match task_manager.add_task(title.clone(), description.clone()) {
+        Commands::Add {
+            title,
+            description,
+            priority,
+        } => {
+            match task_manager.add_task_with_priority(title.clone(), description.clone(), *priority)
+            {
                 Ok(task) => formatter.format_task_created(&task),
                 Err(e) => {
                     eprintln!("Error adding task: {}", e);
@@ -27,8 +32,12 @@ fn main() {
                 }
             }
         }
-        Commands::List => {
-            let tasks = task_manager.list_tasks();
+        Commands::List {
+            completed,
+            pending,
+            priority,
+        } => {
+            let tasks = task_manager.filter_tasks(*completed, *pending, *priority);
             formatter.format_task_list(&tasks);
         }
         Commands::Show { id } => match task_manager.show_task(id) {
@@ -49,13 +58,21 @@ fn main() {
             id,
             title,
             description,
-        } => match task_manager.edit_task(id, title.clone(), description.clone().map(Some)) {
-            Ok(()) => formatter.format_success("Task updated successfully."),
-            Err(e) => {
-                eprintln!("Error updating task: {}", e);
-                process::exit(1);
+            priority,
+        } => {
+            match task_manager.edit_task_full(
+                id,
+                title.clone(),
+                description.clone().map(Some),
+                *priority,
+            ) {
+                Ok(()) => formatter.format_success("Task updated successfully."),
+                Err(e) => {
+                    eprintln!("Error updating task: {}", e);
+                    process::exit(1);
+                }
             }
-        },
+        }
         Commands::Delete { id } => match task_manager.delete_task(id) {
             Ok(()) => formatter.format_success("Task deleted successfully."),
             Err(e) => {

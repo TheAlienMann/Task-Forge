@@ -15,6 +15,9 @@ pub enum TaskForgeError {
     #[error("Invalid task ID")]
     InvalidTaskId,
 
+    #[error("Task title cannot be empty")]
+    EmptyTitle,
+
     #[allow(dead_code)]
     #[error("Storage error: {0}")]
     StorageError(String),

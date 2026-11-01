@@ -203,3 +203,59 @@ fn test_task_manager_with_in_memory_repository() {
     manager.delete_task(&id_str).expect("Failed to delete task");
     assert!(manager.list_tasks().is_empty());
 }
+
+#[test]
+fn test_task_manager_priority_and_filtering() {
+    let mut manager = TaskManager::new(InMemoryStorage::new());
+
+    let t1 = manager
+        .add_task_with_priority("Urgent task".to_string(), None, taskforge::Priority::Urgent)
+        .expect("Failed to add");
+    let _t2 = manager
+        .add_task_with_priority("Low task".to_string(), None, taskforge::Priority::Low)
+        .expect("Failed to add");
+    let _t3 = manager
+        .add_task("Medium task".to_string(), None)
+        .expect("Failed to add");
+
+    // Complete urgent task
+    manager
+        .complete_task(&t1.get_id().to_string())
+        .expect("Failed to complete");
+
+    // Filter completed
+    let completed = manager.filter_tasks(true, false, None);
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].get_title(), "Urgent task");
+
+    // Filter pending
+    let pending = manager.filter_tasks(false, true, None);
+    assert_eq!(pending.len(), 2);
+
+    // Filter by priority
+    let low_priority = manager.filter_tasks(false, false, Some(taskforge::Priority::Low));
+    assert_eq!(low_priority.len(), 1);
+    assert_eq!(low_priority[0].get_title(), "Low task");
+}
+
+#[test]
+fn test_task_manager_validation() {
+    let mut manager = TaskManager::new(InMemoryStorage::new());
+
+    // Empty title
+    assert!(matches!(
+        manager.add_task("   ".to_string(), None),
+        Err(TaskForgeError::EmptyTitle)
+    ));
+
+    // Valid task
+    let task = manager
+        .add_task("Valid task".to_string(), None)
+        .expect("Failed to add");
+
+    // Edit to empty title
+    assert!(matches!(
+        manager.edit_task(&task.get_id().to_string(), Some("".to_string()), None),
+        Err(TaskForgeError::EmptyTitle)
+    ));
+}
