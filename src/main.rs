@@ -1,11 +1,6 @@
-mod commands;
-mod error;
-mod models;
-mod storage;
-
-use crate::commands::task_commands::{Cli, Commands, TaskManager};
 use clap::Parser;
 use std::process;
+use taskforge::commands::task_commands::{Cli, Commands, TaskManager};
 
 fn main() {
     let cli = Cli::parse();
@@ -43,7 +38,7 @@ fn main() {
                         task.get_id(),
                         task.get_title(),
                         task.get_description()
-                            .map_or(String::new(), |desc| format!(" ({})", desc))
+                            .map_or(String::new(), |desc| { format!(" ({})", desc) })
                     );
                 }
             }
