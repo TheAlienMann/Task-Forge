@@ -1,6 +1,9 @@
+mod cli;
+
 use clap::Parser;
+use cli::{Cli, Commands};
 use std::process;
-use taskforge::commands::task_commands::{Cli, Commands, TaskManager};
+use taskforge::TaskManager;
 
 fn main() {
     let cli = Cli::parse();

@@ -1,6 +1,6 @@
 use std::fs;
-use taskforge::commands::task_commands::TaskManager;
 use taskforge::error::TaskForgeError;
+use taskforge::TaskManager;
 use uuid::Uuid;
 
 fn get_temp_storage_path() -> (std::path::PathBuf, String) {
