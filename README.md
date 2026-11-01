@@ -7,6 +7,7 @@ A modern, modular task manager built in Rust with JSON persistence, decoupled li
 - **Decoupled Architecture**: Pure Rust core library (`libtaskforge`) separated from the CLI binary (`taskforge`)
 - **Dependency Inversion**: Domain service (`TaskManager`) depends on an abstract `TaskRepository` trait rather than concrete file storage
 - **Pluggable Storage**: Built-in support for `FileStorage` (JSON persistence) and `InMemoryStorage` (fast, zero-I/O testing)
+- **Multiple Output Formats**: Human-readable text with status icons, structured JSON (`--json`), and quiet ID-only mode (`-q` / `--quiet`)
 - **Resilient Persistence**: Atomic file writes (`tempfile` + `sync_all` + `rename`) guarantee zero data corruption or partial file loss during crashes
 - **Safe Path Resolution**: Automatic `~` and `~/` home directory path expansion avoiding literal directory pollution
 - **Lifetime-Free Service**: `TaskManager` owns its repository without borrowed lifetime contagion
@@ -65,6 +66,25 @@ taskforge clear
 taskforge --storage-path /path/to/tasks.json add "My Task"
 ```
 
+### Scripting & Output Formats
+
+TaskForge supports multiple output formats for easy scripting and terminal piping:
+
+```bash
+# JSON Output (useful for piping into jq or other tools)
+taskforge list --json
+taskforge show <task-id> --json
+taskforge add "New Task" --json
+
+# Quiet Mode (outputs only UUIDs, ideal for shell script loops)
+taskforge list -q
+taskforge add "New Task" -q
+
+# Format option flag
+taskforge --format json list
+taskforge --format quiet list
+```
+
 ### Using TaskForge as a Library
 
 Because `taskforge` is designed with dependency inversion, you can choose between persistent file storage or in-memory storage, or even implement your own `TaskRepository`:
@@ -110,15 +130,17 @@ fn main() -> Result<(), TaskForgeError> {
 
 ## Architecture & Project Structure
 
-The project strictly follows the Dependency Inversion Principle (DIP): high-level business services (`TaskManager`) depend only on the abstract `TaskRepository` trait, while persistence backends implement this trait:
+The project strictly follows clean separation of concerns and the Dependency Inversion Principle (DIP):
 
 ```text
 .
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, etc.)
-│   ├── main.rs              # Thin binary entry point (CLI application)
-│   ├── cli.rs               # Clap CLI arguments, options, and subcommand definitions
+│   ├── main.rs              # Thin binary entry point (wiring CLI to library services)
+│   ├── cli/                 # CLI presentation & argument handling
+│   │   ├── mod.rs           # Clap CLI arguments, options, and subcommand definitions
+│   │   └── formatter.rs     # Output formatters (Text, JSON, Quiet)
 │   ├── manager.rs           # Generic TaskManager<R: TaskRepository> business service
 │   ├── error/               # Custom error types (TaskForgeError)
 │   │   └── mod.rs
@@ -141,7 +163,7 @@ The project strictly follows the Dependency Inversion Principle (DIP): high-leve
 2. **Repository Abstraction (`storage::repository`)**: `TaskRepository` trait defining standard persistence contracts (`get_task`, `get_all_tasks`, `add_task`, `update_task`, `remove_task`, `clear_all`).
 3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`. Includes crash-resilient atomic writes and path resolution.
 4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination without coupling to storage details.
-5. **Presentation Adapter (`cli` & `main.rs`)**: Clap parser handling command-line flags and console formatting.
+5. **Presentation Adapter (`cli/`)**: Clap parser handling command-line flags and `TaskFormatter` handling multi-format output (Text, JSON, Quiet).
 
 ## Development
 

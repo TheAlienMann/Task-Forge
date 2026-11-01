@@ -1,4 +1,7 @@
+pub mod formatter;
+
 use clap::{Parser, Subcommand};
+pub use formatter::{OutputFormat, TaskFormatter};
 
 #[derive(Parser)]
 #[clap(
@@ -10,8 +13,38 @@ pub struct Cli {
     #[clap(long, default_value = "~/.taskforge/tasks.json")]
     pub storage_path: String,
 
+    /// Output format (text, json, quiet)
+    #[clap(
+        short,
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        global = true
+    )]
+    pub format: OutputFormat,
+
+    /// Output in JSON format (equivalent to --format json)
+    #[clap(long, global = true)]
+    pub json: bool,
+
+    /// Quiet output: prints only task IDs (equivalent to --format quiet)
+    #[clap(short, long, global = true)]
+    pub quiet: bool,
+
     #[clap(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    pub fn output_format(&self) -> OutputFormat {
+        if self.json {
+            OutputFormat::Json
+        } else if self.quiet {
+            OutputFormat::Quiet
+        } else {
+            self.format
+        }
+    }
 }
 
 #[derive(Subcommand)]
