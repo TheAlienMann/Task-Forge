@@ -8,7 +8,7 @@ use taskforge::TaskManager;
 fn main() {
     let cli = Cli::parse();
 
-    let mut task_manager = match TaskManager::new(&cli.storage_path) {
+    let mut task_manager = match TaskManager::from_file(&cli.storage_path) {
         Ok(manager) => manager,
         Err(e) => {
             eprintln!("Error initializing task manager: {}", e);

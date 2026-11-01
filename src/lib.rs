@@ -7,7 +7,9 @@ pub mod storage;
 pub use error::TaskForgeError;
 pub use manager::TaskManager;
 pub use models::task::Task;
-pub use storage::file_storage::TaskStorage;
+pub use storage::file_storage::{FileStorage, TaskStorage};
+pub use storage::mem_storage::InMemoryStorage;
+pub use storage::repository::TaskRepository;
 
 // Backward-compatibility module alias
 pub mod commands {

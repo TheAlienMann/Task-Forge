@@ -1,12 +1,14 @@
 # TaskForge
 
-A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, and rich CLI features.
+A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, dependency inversion, and rich CLI features.
 
 ## Features
 
 - **Decoupled Architecture**: Pure Rust core library (`libtaskforge`) separated from the CLI binary (`taskforge`)
+- **Dependency Inversion**: Domain service (`TaskManager`) depends on an abstract `TaskRepository` trait rather than concrete file storage
+- **Pluggable Storage**: Built-in support for `FileStorage` (JSON persistence) and `InMemoryStorage` (fast, zero-I/O testing)
+- **Lifetime-Free Service**: `TaskManager` owns its repository without borrowed lifetime contagion
 - **Task Management**: Add, list, show, complete, edit, delete, and clear tasks
-- **Persistent Storage**: Tasks stored in JSON format with configurable path
 - **UUID-based Task IDs**: Unique identifiers for all tasks
 - **Rich CLI Interface**: Intuitive command-line interface with helpful error messages
 - **Error Handling**: Comprehensive error handling with custom error types
@@ -63,14 +65,15 @@ taskforge --storage-path /path/to/tasks.json add "My Task"
 
 ### Using TaskForge as a Library
 
-Because `taskforge` is designed with a decoupled architecture, you can use it directly in your own Rust applications without CLI overhead:
+Because `taskforge` is designed with dependency inversion, you can choose between persistent file storage or in-memory storage, or even implement your own `TaskRepository`:
 
+#### File-backed Task Manager:
 ```rust
 use taskforge::{TaskManager, Task, TaskForgeError};
 
 fn main() -> Result<(), TaskForgeError> {
-    // Initialize task manager with a JSON storage path
-    let mut manager = TaskManager::new("tasks.json")?;
+    // Initialize task manager backed by a JSON file
+    let mut manager = TaskManager::from_file("tasks.json")?;
 
     // Add a new task
     let task = manager.add_task("Implement feature".into(), Some("Details here".into()))?;
@@ -88,37 +91,55 @@ fn main() -> Result<(), TaskForgeError> {
 }
 ```
 
+#### In-Memory Task Manager (e.g. for testing or ephemeral workloads):
+```rust
+use taskforge::{TaskManager, InMemoryStorage, TaskForgeError};
+
+fn main() -> Result<(), TaskForgeError> {
+    // Zero disk I/O, fast in-memory repository
+    let mut manager = TaskManager::new(InMemoryStorage::new());
+
+    let task = manager.add_task("Quick test".into(), None)?;
+    assert_eq!(manager.list_tasks().len(), 1);
+
+    Ok(())
+}
+```
+
 ## Architecture & Project Structure
 
-The project strictly separates domain logic and persistence (library) from user-interface and argument parsing (binary):
+The project strictly follows the Dependency Inversion Principle (DIP): high-level business services (`TaskManager`) depend only on the abstract `TaskRepository` trait, while persistence backends implement this trait:
 
 ```text
 .
 ├── Cargo.toml
 ├── src/
-│   ├── lib.rs               # Library root & public re-exports (TaskManager, Task, etc.)
+│   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, etc.)
 │   ├── main.rs              # Thin binary entry point (CLI application)
 │   ├── cli.rs               # Clap CLI arguments, options, and subcommand definitions
-│   ├── manager.rs           # TaskManager service coordinating business logic and storage
+│   ├── manager.rs           # Generic TaskManager<R: TaskRepository> business service
 │   ├── error/               # Custom error types (TaskForgeError)
 │   │   └── mod.rs
 │   ├── models/              # Core domain models (Task)
 │   │   ├── mod.rs
 │   │   └── task.rs
-│   └── storage/             # Persistence layer (TaskStorage)
-│       ├── mod.rs
-│       └── file_storage.rs
+│   └── storage/             # Persistence layer & abstractions
+│       ├── mod.rs           # Module re-exports
+│       ├── repository.rs    # TaskRepository trait definition
+│       ├── file_storage.rs  # FileStorage implementation (JSON persistence)
+│       └── mem_storage.rs   # InMemoryStorage implementation (ephemeral / testing)
 └── tests/                   # Independent integration test suites
     ├── task_tests.rs        # Task model unit and serialization tests
     ├── storage_tests.rs     # Storage persistence, loading, and mutation tests
-    └── manager_tests.rs     # TaskManager workflow and error handling tests
+    └── manager_tests.rs     # TaskManager workflow with both File and InMemory repositories
 ```
 
 ### Layers:
 1. **Domain Layer (`models`)**: `Task` entity with invariants, completion states, and serde support.
-2. **Persistence Layer (`storage`)**: `TaskStorage` managing JSON serialization, buffer flushing, and file persistence.
-3. **Application Service (`manager`)**: `TaskManager` providing an programmatic API for operations.
-4. **Presentation Adapter (`cli` & `main.rs`)**: Clap parser handling command-line flags and console formatting.
+2. **Repository Abstraction (`storage::repository`)**: `TaskRepository` trait defining standard persistence contracts (`get_task`, `get_all_tasks`, `add_task`, `update_task`, `remove_task`, `clear_all`).
+3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`.
+4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination without coupling to storage details.
+5. **Presentation Adapter (`cli` & `main.rs`)**: Clap parser handling command-line flags and console formatting.
 
 ## Development
 
