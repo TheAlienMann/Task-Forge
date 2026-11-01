@@ -1,8 +1,13 @@
 pub mod formatter;
+pub mod handlers;
+pub mod prompt;
 
 use clap::{Parser, Subcommand};
-pub use formatter::{OutputFormat, TaskFormatter};
-use taskforge::Priority;
+pub use formatter::{create_formatter, OutputFormat};
+pub use handlers::execute_command;
+pub use prompt::ConsolePrompter;
+use taskforge::error::TaskForgeError;
+use taskforge::{Priority, TaskManager};
 
 #[derive(Parser)]
 #[clap(
@@ -102,5 +107,18 @@ pub enum Commands {
         id: String,
     },
     /// Clear all tasks
-    Clear,
+    Clear {
+        /// Skip confirmation prompt and clear immediately
+        #[clap(short, long)]
+        yes: bool,
+    },
+}
+
+/// Runs the CLI application, resolving storage and executing the command.
+pub fn run(cli: Cli) -> Result<(), TaskForgeError> {
+    let formatter = create_formatter(cli.output_format());
+    let prompter = ConsolePrompter;
+
+    let mut manager = TaskManager::from_file(&cli.storage_path)?;
+    execute_command(&cli.command, &mut manager, formatter.as_ref(), &prompter)
 }

@@ -7,6 +7,7 @@ A modern, modular task manager built in Rust with JSON persistence, decoupled li
 - **Decoupled Architecture**: Pure Rust core library (`libtaskforge`) separated from the CLI binary (`taskforge`)
 - **Dependency Inversion**: Domain service (`TaskManager`) depends on an abstract `TaskRepository` trait rather than concrete file storage
 - **Pluggable Storage**: Built-in support for `FileStorage` (JSON persistence) and `InMemoryStorage` (fast, zero-I/O testing)
+- **Separated Presentation**: Dedicated CLI command handlers, interactive prompters, and polymorphic `OutputFormatter` implementations
 - **Priority & Filtering**: Assign priorities (`Low`, `Medium`, `High`, `Urgent`) and filter tasks by status or priority
 - **Domain Invariants**: Guaranteed non-empty titles with automatic whitespace trimming and validation
 - **Timestamps**: Automatic tracking of both `created_at` and `updated_at` timestamps
@@ -72,8 +73,9 @@ taskforge edit <task-id> --title "Updated Title" --priority high
 # Delete a task
 taskforge delete <task-id>
 
-# Clear all tasks
+# Clear all tasks (prompts for confirmation, or pass -y / --yes to skip)
 taskforge clear
+taskforge clear -y
 
 # Set custom storage path (default: ~/.taskforge/tasks.json, automatically expanded to your home directory)
 taskforge --storage-path /path/to/tasks.json add "My Task"
@@ -154,10 +156,12 @@ The project strictly follows clean separation of concerns and the Dependency Inv
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, Priority, etc.)
-│   ├── main.rs              # Thin binary entry point (wiring CLI to library services)
+│   ├── main.rs              # Ultra-thin binary entry point (15 lines, error handling & exit codes)
 │   ├── cli/                 # CLI presentation & argument handling
-│   │   ├── mod.rs           # Clap CLI arguments, options, and subcommand definitions
-│   │   └── formatter.rs     # Output formatters (Text, JSON, Quiet)
+│   │   ├── mod.rs           # Clap CLI arguments, options, and entrypoint run()
+│   │   ├── formatter.rs     # OutputFormatter trait & implementations (Text, JSON, Quiet)
+│   │   ├── handlers.rs      # Command routing and task manager coordination
+│   │   └── prompt.rs        # Terminal input & confirmation prompter
 │   ├── manager.rs           # Generic TaskManager<R: TaskRepository> business service
 │   ├── error/               # Custom error types (TaskForgeError: EmptyTitle, InvalidTaskId, etc.)
 │   │   └── mod.rs
@@ -181,7 +185,7 @@ The project strictly follows clean separation of concerns and the Dependency Inv
 2. **Repository Abstraction (`storage::repository`)**: `TaskRepository` trait defining standard persistence contracts (`get_task`, `get_all_tasks`, `add_task`, `update_task`, `remove_task`, `clear_all`).
 3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`. Includes crash-resilient atomic writes and path resolution.
 4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination, priority handling, and multi-criteria filtering without coupling to storage details.
-5. **Presentation Adapter (`cli/`)**: Clap parser handling command-line flags and `TaskFormatter` handling multi-format output (Text with badges, JSON, Quiet).
+5. **Presentation Adapter (`cli/`)**: Modular CLI layer composed of Clap arguments, command handlers, interactive prompt abstractions, and polymorphic `OutputFormatter` implementations (Text with badges, JSON, Quiet).
 
 ## Development
 
