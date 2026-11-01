@@ -7,6 +7,20 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+/// Resolves a path string, expanding `~` to the user's home directory if present.
+pub fn resolve_path(path: &str) -> PathBuf {
+    if path == "~" {
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            return PathBuf::from(home);
+        }
+    } else if let Some(stripped) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            return PathBuf::from(home).join(stripped);
+        }
+    }
+    PathBuf::from(path)
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FileStorage {
     #[serde(skip)]
@@ -26,23 +40,40 @@ impl FileStorage {
     }
 
     pub fn with_path<P: AsRef<Path>>(path: P) -> Self {
+        let path_ref = path.as_ref();
+        let resolved = if let Some(s) = path_ref.to_str() {
+            resolve_path(s)
+        } else {
+            path_ref.to_path_buf()
+        };
         Self {
-            path: Some(path.as_ref().to_path_buf()),
+            path: Some(resolved),
             tasks: Vec::new(),
         }
     }
 
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, TaskForgeError> {
         let path_ref = path.as_ref();
+        let resolved = if let Some(s) = path_ref.to_str() {
+            resolve_path(s)
+        } else {
+            path_ref.to_path_buf()
+        };
 
         // If the file doesn't exist, return an empty storage with the path recorded
-        if !path_ref.exists() {
-            return Ok(Self::with_path(path_ref));
+        if !resolved.exists() {
+            return Ok(Self {
+                path: Some(resolved),
+                tasks: Vec::new(),
+            });
         }
 
-        let file = File::open(path_ref)?;
+        let file = File::open(&resolved)?;
         if file.metadata()?.len() == 0 {
-            return Ok(Self::with_path(path_ref));
+            return Ok(Self {
+                path: Some(resolved),
+                tasks: Vec::new(),
+            });
         }
 
         let reader = BufReader::new(file);
@@ -51,26 +82,63 @@ impl FileStorage {
         let tasks: Vec<Task> = serde_json::from_reader(reader)?;
 
         Ok(Self {
-            path: Some(path_ref.to_path_buf()),
+            path: Some(resolved),
             tasks,
         })
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), TaskForgeError> {
-        let path = path.as_ref();
+        let path_ref = path.as_ref();
+        let resolved = if let Some(s) = path_ref.to_str() {
+            resolve_path(s)
+        } else {
+            path_ref.to_path_buf()
+        };
 
         // Ensure the directory exists
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
+        let parent = if let Some(p) = resolved.parent() {
+            if !p.as_os_str().is_empty() {
+                fs::create_dir_all(p)?;
+                p
+            } else {
+                Path::new(".")
             }
+        } else {
+            Path::new(".")
+        };
+
+        // Create temporary file in the same directory as destination to guarantee atomic rename
+        let temp_filename = format!(
+            ".{}.tmp.{}",
+            resolved
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("tasks"),
+            Uuid::new_v4()
+        );
+        let temp_path = parent.join(temp_filename);
+
+        // Write and sync to temp file
+        let write_result = (|| -> Result<(), TaskForgeError> {
+            let file = File::create(&temp_path)?;
+            let mut writer = BufWriter::new(file);
+            serde_json::to_writer_pretty(&mut writer, &self.tasks)?;
+            writer.flush()?;
+            let file = writer.into_inner().map_err(|e| e.into_error())?;
+            file.sync_all()?;
+            Ok(())
+        })();
+
+        if let Err(e) = write_result {
+            let _ = fs::remove_file(&temp_path);
+            return Err(e);
         }
 
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-
-        serde_json::to_writer_pretty(&mut writer, &self.tasks)?;
-        writer.flush()?;
+        // Atomically rename temp file to target destination
+        if let Err(e) = fs::rename(&temp_path, &resolved) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(TaskForgeError::Io(e));
+        }
 
         Ok(())
     }

@@ -1,7 +1,8 @@
 use std::fs::{self, File};
+use std::path::PathBuf;
 use taskforge::error::TaskForgeError;
 use taskforge::models::task::Task;
-use taskforge::storage::file_storage::TaskStorage;
+use taskforge::storage::file_storage::{resolve_path, TaskStorage};
 
 #[test]
 fn test_storage_new_and_empty() {
@@ -113,6 +114,57 @@ fn test_save_and_load() {
     assert_eq!(loaded.get_task(&id).unwrap().get_title(), "Saved task");
 
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_atomic_save_leaves_no_temp_files() {
+    let temp_dir = std::env::temp_dir().join(format!("taskforge_atomic_{}", uuid::Uuid::new_v4()));
+    let file_path = temp_dir.join("tasks.json");
+
+    let mut storage = TaskStorage::new();
+    storage.add_task(Task::new("Atomic task".to_string(), None));
+
+    // Save twice
+    storage.save_to_file(&file_path).expect("First save failed");
+    storage.add_task(Task::new("Second task".to_string(), None));
+    storage
+        .save_to_file(&file_path)
+        .expect("Second save failed");
+
+    // Verify target file exists and contains valid JSON
+    let loaded = TaskStorage::load_from_file(&file_path).expect("Failed to load");
+    assert_eq!(loaded.len(), 2);
+
+    // Verify no temporary files exist in the directory
+    let entries: Vec<_> = fs::read_dir(&temp_dir)
+        .expect("Failed to read dir")
+        .filter_map(|e| e.ok())
+        .collect();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].file_name(), "tasks.json");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_resolve_path() {
+    // Relative path
+    assert_eq!(resolve_path("custom.json"), PathBuf::from("custom.json"));
+
+    // Absolute path
+    assert_eq!(
+        resolve_path("/tmp/tasks.json"),
+        PathBuf::from("/tmp/tasks.json")
+    );
+
+    // Tilde expansion
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        let expected = PathBuf::from(&home).join(".taskforge/tasks.json");
+        assert_eq!(resolve_path("~/.taskforge/tasks.json"), expected);
+
+        assert_eq!(resolve_path("~"), PathBuf::from(&home));
+    }
 }
 
 #[test]
