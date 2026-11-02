@@ -1,8 +1,9 @@
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::time::Duration;
 use taskforge::error::TaskForgeError;
 use taskforge::models::task::Task;
-use taskforge::storage::file_storage::{resolve_path, TaskStorage};
+use taskforge::storage::file_storage::{resolve_path, FileLock, TaskStorage};
 
 #[test]
 fn test_storage_new_and_empty() {
@@ -143,6 +144,30 @@ fn test_atomic_save_leaves_no_temp_files() {
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].file_name(), "tasks.json");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_file_lock_lifecycle() {
+    let temp_dir = std::env::temp_dir().join(format!("taskforge_lock_{}", uuid::Uuid::new_v4()));
+    let _ = fs::create_dir_all(&temp_dir);
+    let target_file = temp_dir.join("tasks.json");
+
+    // Acquire first lock
+    let lock1 = FileLock::acquire(&target_file, Duration::from_millis(500))
+        .expect("Failed to acquire lock1");
+
+    // Second lock attempt should fail with StorageError timeout
+    let lock2_result = FileLock::acquire(&target_file, Duration::from_millis(150));
+    assert!(matches!(lock2_result, Err(TaskForgeError::StorageError(_))));
+
+    // Drop lock1 to release the lockfile
+    drop(lock1);
+
+    // Now acquiring lock should immediately succeed
+    let lock3 = FileLock::acquire(&target_file, Duration::from_millis(500));
+    assert!(lock3.is_ok());
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

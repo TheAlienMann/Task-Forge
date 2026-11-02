@@ -2,9 +2,11 @@ use crate::error::TaskForgeError;
 use crate::models::task::Task;
 use crate::storage::repository::TaskRepository;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 /// Resolves a path string, expanding `~` to the user's home directory if present.
@@ -19,6 +21,51 @@ pub fn resolve_path(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
+}
+
+/// RAII lock guard ensuring concurrency safety across processes.
+pub struct FileLock {
+    lock_path: PathBuf,
+}
+
+impl FileLock {
+    /// Attempts to acquire an atomic lockfile for `target_path` within `timeout`.
+    pub fn acquire(target_path: &Path, timeout: Duration) -> Result<Self, TaskForgeError> {
+        let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
+        let lock_filename = format!(
+            ".{}.lock",
+            target_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("tasks")
+        );
+        let lock_path = parent.join(lock_filename);
+
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(_) => return Ok(Self { lock_path }),
+                Err(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    sleep(Duration::from_millis(50));
+                }
+                Err(e) => return Err(TaskForgeError::Io(e)),
+            }
+        }
+
+        Err(TaskForgeError::StorageError(
+            "Storage is currently locked by another process. Please try again.".to_string(),
+        ))
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.lock_path);
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -106,6 +153,9 @@ impl FileStorage {
         } else {
             Path::new(".")
         };
+
+        // Acquire advisory lock to guarantee concurrency safety across processes
+        let _lock = FileLock::acquire(&resolved, Duration::from_secs(3))?;
 
         // Create temporary file in the same directory as destination to guarantee atomic rename
         let temp_filename = format!(

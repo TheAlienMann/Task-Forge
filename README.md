@@ -1,6 +1,6 @@
 # TaskForge
 
-A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, dependency inversion, resilient atomic writes, domain invariants, and rich CLI features.
+A modern, modular task manager built in Rust with JSON persistence, decoupled library architecture, dependency inversion, resilient atomic writes, process concurrency locks, domain invariants, and rich CLI features.
 
 ## Features
 
@@ -8,12 +8,13 @@ A modern, modular task manager built in Rust with JSON persistence, decoupled li
 - **Dependency Inversion**: Domain service (`TaskManager`) depends on an abstract `TaskRepository` trait rather than concrete file storage
 - **Pluggable Storage**: Built-in support for `FileStorage` (JSON persistence) and `InMemoryStorage` (fast, zero-I/O testing)
 - **Separated Presentation**: Dedicated CLI command handlers, interactive prompters, and polymorphic `OutputFormatter` implementations
+- **Multiple Output Formats**: Text with status icons, aligned tables (`--format table`), structured JSON (`--json`), and quiet ID-only mode (`-q` / `--quiet`)
+- **Resilient Persistence**: Atomic file writes (`tempfile` + `sync_all` + `rename`) guarantee zero data corruption or partial file loss during crashes
+- **Advisory File Locking**: RAII `FileLock` guard prevents concurrent process race conditions and write clobbering
+- **Safe Path Resolution**: Automatic `~` and `~/` home directory path expansion avoiding literal directory pollution
 - **Priority & Filtering**: Assign priorities (`Low`, `Medium`, `High`, `Urgent`) and filter tasks by status or priority
 - **Domain Invariants**: Guaranteed non-empty titles with automatic whitespace trimming and validation
 - **Timestamps**: Automatic tracking of both `created_at` and `updated_at` timestamps
-- **Multiple Output Formats**: Human-readable text with status icons, structured JSON (`--json`), and quiet ID-only mode (`-q` / `--quiet`)
-- **Resilient Persistence**: Atomic file writes (`tempfile` + `sync_all` + `rename`) guarantee zero data corruption or partial file loss during crashes
-- **Safe Path Resolution**: Automatic `~` and `~/` home directory path expansion avoiding literal directory pollution
 - **Lifetime-Free Service**: `TaskManager` owns its repository without borrowed lifetime contagion
 - **Task Management**: Add, list, show, complete, edit, delete, and clear tasks
 - **UUID-based Task IDs**: Unique identifiers for all tasks
@@ -86,6 +87,10 @@ taskforge --storage-path /path/to/tasks.json add "My Task"
 TaskForge supports multiple output formats for easy scripting and terminal piping:
 
 ```bash
+# Aligned Tabular Output
+taskforge --format table list
+taskforge --format table show <task-id>
+
 # JSON Output (useful for piping into jq or other tools)
 taskforge list --json
 taskforge show <task-id> --json
@@ -97,6 +102,7 @@ taskforge add "New Task" -q
 
 # Format option flag
 taskforge --format json list
+taskforge --format table list
 taskforge --format quiet list
 ```
 
@@ -109,7 +115,7 @@ Because `taskforge` is designed with dependency inversion, you can choose betwee
 use taskforge::{TaskManager, Task, Priority, TaskForgeError};
 
 fn main() -> Result<(), TaskForgeError> {
-    // Initialize task manager backed by a JSON file (supports atomic writes and '~' expansion)
+    // Initialize task manager backed by a JSON file (supports atomic writes, locks, and '~' expansion)
     let mut manager = TaskManager::from_file("tasks.json")?;
 
     // Add a new task with urgent priority
@@ -153,13 +159,16 @@ The project strictly follows clean separation of concerns and the Dependency Inv
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── ci.yml           # Automated CI testing fmt, clippy, tests, and build
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs               # Library root & public re-exports (TaskManager, TaskRepository, Priority, etc.)
 │   ├── main.rs              # Ultra-thin binary entry point (15 lines, error handling & exit codes)
 │   ├── cli/                 # CLI presentation & argument handling
 │   │   ├── mod.rs           # Clap CLI arguments, options, and entrypoint run()
-│   │   ├── formatter.rs     # OutputFormatter trait & implementations (Text, JSON, Quiet)
+│   │   ├── formatter.rs     # OutputFormatter trait & implementations (Text, Table, JSON, Quiet)
 │   │   ├── handlers.rs      # Command routing and task manager coordination
 │   │   └── prompt.rs        # Terminal input & confirmation prompter
 │   ├── manager.rs           # Generic TaskManager<R: TaskRepository> business service
@@ -172,20 +181,20 @@ The project strictly follows clean separation of concerns and the Dependency Inv
 │   └── storage/             # Persistence layer & abstractions
 │       ├── mod.rs           # Module re-exports
 │       ├── repository.rs    # TaskRepository trait definition
-│       ├── file_storage.rs  # FileStorage implementation (atomic writes & path resolution)
+│       ├── file_storage.rs  # FileStorage implementation (atomic writes, FileLock & path resolution)
 │       └── mem_storage.rs   # InMemoryStorage implementation (ephemeral / testing)
 └── tests/                   # Independent integration test suites
     ├── task_tests.rs        # Task model unit, validation, and serialization tests
-    ├── storage_tests.rs     # Storage persistence, atomic writes, and mutation tests
+    ├── storage_tests.rs     # Storage persistence, atomic writes, concurrency locks, and mutation tests
     └── manager_tests.rs     # TaskManager workflow with File and InMemory repositories, filtering & priority
 ```
 
 ### Layers:
 1. **Domain Layer (`models`)**: `Task` entity with invariants, non-empty title validation, priority badge levels, and timestamps.
 2. **Repository Abstraction (`storage::repository`)**: `TaskRepository` trait defining standard persistence contracts (`get_task`, `get_all_tasks`, `add_task`, `update_task`, `remove_task`, `clear_all`).
-3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`. Includes crash-resilient atomic writes and path resolution.
+3. **Storage Implementations (`storage::file_storage`, `storage::mem_storage`)**: Pluggable adapters implementing `TaskRepository`. Includes crash-resilient atomic writes, process concurrency `FileLock`, and path resolution.
 4. **Application Service (`manager`)**: Generic `TaskManager<R: TaskRepository>` providing high-level task coordination, priority handling, and multi-criteria filtering without coupling to storage details.
-5. **Presentation Adapter (`cli/`)**: Modular CLI layer composed of Clap arguments, command handlers, interactive prompt abstractions, and polymorphic `OutputFormatter` implementations (Text with badges, JSON, Quiet).
+5. **Presentation Adapter (`cli/`)**: Modular CLI layer composed of Clap arguments, command handlers, interactive prompt abstractions, and polymorphic `OutputFormatter` implementations (Text, dynamic Tables, JSON, Quiet).
 
 ## Development
 
@@ -219,6 +228,7 @@ cargo build
 The application handles various error conditions gracefully:
 
 - Empty or whitespace-only task titles (`EmptyTitle`)
+- Storage lock contention between concurrent processes (`StorageError`)
 - Invalid task IDs (UUID parsing errors)
 - File I/O errors during storage operations
 - Task not found errors

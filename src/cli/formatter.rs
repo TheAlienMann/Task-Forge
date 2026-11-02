@@ -8,6 +8,8 @@ pub enum OutputFormat {
     /// Human-readable text format with status icons and badges
     #[default]
     Text,
+    /// Clean, aligned tabular format
+    Table,
     /// Structured JSON format suitable for piping (e.g. into jq)
     Json,
     /// Quiet format outputting only identifiers, suitable for shell scripting
@@ -77,6 +79,113 @@ impl OutputFormatter for TextFormatter {
     }
 }
 
+pub struct TableFormatter;
+
+impl OutputFormatter for TableFormatter {
+    fn format_task_created(&self, task: &Task) {
+        println!(
+            "Task added successfully with ID: {} {}",
+            task.get_id(),
+            task.priority.badge()
+        );
+    }
+
+    fn format_task_list(&self, tasks: &[Task]) {
+        if tasks.is_empty() {
+            println!("No tasks found.");
+            return;
+        }
+
+        let h_status = "STATUS";
+        let h_priority = "PRIORITY";
+        let h_id = "ID";
+        let h_title = "TITLE";
+        let h_updated = "UPDATED";
+
+        let max_title_len = tasks
+            .iter()
+            .map(|t| t.get_title().len())
+            .max()
+            .unwrap_or(5)
+            .max(h_title.len());
+
+        println!(
+            "{:<6}  {:<8}  {:<36}  {:<width$}  {:<19}",
+            h_status,
+            h_priority,
+            h_id,
+            h_title,
+            h_updated,
+            width = max_title_len
+        );
+
+        println!(
+            "{:-<6}  {:-<8}  {:-<36}  {:-<width$}  {:-<19}",
+            "",
+            "",
+            "",
+            "",
+            "",
+            width = max_title_len
+        );
+
+        for task in tasks {
+            let status_icon = if task.is_completed() {
+                "✓ Done"
+            } else {
+                "○ Open"
+            };
+            let updated_str = task.updated_at.format("%Y-%m-%d %H:%M").to_string();
+            println!(
+                "{:<6}  {:<8}  {:<36}  {:<width$}  {:<19}",
+                status_icon,
+                task.priority.badge(),
+                task.get_id(),
+                task.get_title(),
+                updated_str,
+                width = max_title_len
+            );
+        }
+    }
+
+    fn format_task_detail(&self, task: &Task) {
+        let status = if task.is_completed() {
+            "Completed"
+        } else {
+            "Pending"
+        };
+        let priority_str = format!("{} {}", task.priority, task.priority.badge());
+        println!("┌─────────────┬────────────────────────────────────────────────────────┐");
+        println!("│ Field       │ Value                                                  │");
+        println!("├─────────────┼────────────────────────────────────────────────────────┤");
+        println!("│ ID          │ {:<54} │", task.get_id());
+        println!("│ Title       │ {:<54} │", task.get_title());
+        println!("│ Priority    │ {:<54} │", priority_str);
+        println!("│ Status      │ {:<54} │", status);
+        println!(
+            "│ Description │ {:<54} │",
+            task.get_description().unwrap_or("None")
+        );
+        println!(
+            "│ Created At  │ {:<54} │",
+            task.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+        );
+        println!(
+            "│ Updated At  │ {:<54} │",
+            task.updated_at.format("%Y-%m-%d %H:%M:%S UTC")
+        );
+        println!("└─────────────┴────────────────────────────────────────────────────────┘");
+    }
+
+    fn format_success(&self, message: &str) {
+        println!("{}", message);
+    }
+
+    fn format_error(&self, error: &TaskForgeError) {
+        eprintln!("Error: {}", error);
+    }
+}
+
 pub struct JsonFormatter;
 
 impl OutputFormatter for JsonFormatter {
@@ -135,6 +244,7 @@ impl OutputFormatter for QuietFormatter {
 pub fn create_formatter(format: OutputFormat) -> Box<dyn OutputFormatter> {
     match format {
         OutputFormat::Text => Box::new(TextFormatter),
+        OutputFormat::Table => Box::new(TableFormatter),
         OutputFormat::Json => Box::new(JsonFormatter),
         OutputFormat::Quiet => Box::new(QuietFormatter),
     }
